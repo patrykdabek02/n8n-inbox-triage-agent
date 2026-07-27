@@ -1,0 +1,1130 @@
+{
+  "name": "Inbox Triage Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {}
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        784
+      ],
+      "id": "e4900b3e-93b3-4c1b-a4f0-5b4f30b6f9d4",
+      "name": "Gmail Trigger",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b005218f-5eb8-4d3b-9d3f-272051a1ec61",
+              "name": "from",
+              "value": "={{ $json.From }}",
+              "type": "string"
+            },
+            {
+              "id": "55c1bfd9-a41e-452e-9e34-6a06938f6e34",
+              "name": "=subject",
+              "value": "={{ $json.Subject }}",
+              "type": "string"
+            },
+            {
+              "id": "b1614b48-9962-4785-9e60-efe26f52e38b",
+              "name": "snippet",
+              "value": "={{ $json.snippet }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        224,
+        688
+      ],
+      "id": "d85233c9-4d92-4560-8400-d6bad16cf447",
+      "name": "Build prompt fields"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Od: {{ $json.from }}\nTemat: {{ $json.subject }}\nFragment: {{ $json.snippet }}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "Klasyfikujesz maile do jednej z kategorii: OFERTA_PRACY, REKRUTACJA_ODPOWIEDZ, ZAPROSZENIE_SIEC, FAKTURA, BANKOWOSC, SUBSKRYPCJE, WAZNE, PRAWNE, BEZPIECZENSTWO, STUDIA, EDUKACJA, POWIADOMIENIE, NEWSLETTER, SPAM, DO_SPRAWDZENIA. Zwróć wyłącznie JSON w formacie: {\"category\": \"...\", \"action\": \"label|archive\", \"reason\": \"krótkie uzasadnienie po polsku\"} Definicje: - OFERTA_PRACY: realna oferta pracy albo ogłoszenie/alert o nowych ofertach od rekrutera lub portalu, W TYM e-maile LinkedIn typu \"New jobs similar to...\", \"Nowe oferty podobne do...\", cotygodniowe podsumowania/alerty ofert pracy - to zawsze OFERTA_PRACY, nawet jeśli nadawcą jest LinkedIn, NIE odpowiedź na Twoją aplikację - REKRUTACJA_ODPOWIEDZ: odpowiedź rekrutera lub firmy na Twoją konkretną aplikację/kandydaturę (np. zaproszenie na rozmowę, informacja zwrotna) - ZAPROSZENIE_SIEC: zaproszenie do połączenia/kontaktu z KONKRETNĄ OSOBĄ (np. \"X chce nawiązać z Tobą kontakt\", \"X wants to connect\", zaproszenie do sieci kontaktów) - NIGDY nie używaj tej kategorii dla alertów lub ofert pracy, nawet jeśli przyszły z LinkedIn - FAKTURA: faktury, płatności, potwierdzenia zakupów - BANKOWOSC: potwierdzenia transakcji bankowych, wyciągi, alerty z banku - SUBSKRYPCJE: przypomnienia o odnowieniu lub opłacie płatnej subskrypcji - WAZNE: realna korespondencja od ludzi wymagająca reakcji - PRAWNE: pisma urzędowe, ZUS, US, sądy, oficjalna korespondencja prawna - BEZPIECZENSTWO: alerty logowania, reset hasła, kody 2FA, podejrzana aktywność na koncie - STUDIA: wiadomości od uczelni, wykładowców, dziekanatu, dotyczące studiów - EDUKACJA: kursy, szkolenia, platformy edukacyjne (Udemy, Coursera, LeetCode itp.) - POWIADOMIENIE: automatyczne komunikaty systemowe (potwierdzenia kont, statusy, powiadomienia usług) niezwiązane z bezpieczeństwem - NEWSLETTER: subskrypcje, treści marketingowe - SPAM: śmieci, phishing - DO_SPRAWDZENIA: nie masz pewności co do kategorii Zasady przypisania action: - OFERTA_PRACY, REKRUTACJA_ODPOWIEDZ, ZAPROSZENIE_SIEC, FAKTURA, BANKOWOSC, SUBSKRYPCJE, WAZNE, PRAWNE, BEZPIECZENSTWO, STUDIA, DO_SPRAWDZENIA → action: \"label\" - POWIADOMIENIE, NEWSLETTER, SPAM, EDUKACJA → action: \"archive\" - Jeśli nie masz pewności, wybierz DO_SPRAWDZENIA i action \"label\"."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        448,
+        688
+      ],
+      "id": "6a2df34b-728a-46b2-8501-0ad51f49bcc5",
+      "name": "Classify (LLM)"
+    },
+    {
+      "parameters": {
+        "model": "qwen3.5:9b",
+        "options": {
+          "think": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [
+        448,
+        880
+      ],
+      "id": "3891625c-013b-4efd-abdc-7052e07ea3fa",
+      "name": "Ollama Chat Model",
+      "credentials": {
+        "ollamaApi": {
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const gmailTriggerRan = $('Gmail Trigger').isExecuted === true;\nconst sourceItems = gmailTriggerRan ? $('Gmail Trigger').all() : $('Get many messages').all();\nconst inputItems = $input.all();\n\nfor (let i = 0; i < inputItems.length; i++) {\n    const item = inputItems[i];\n    const raw = item.json.text || '';\n    let parsed = null;\n    try {\n          parsed = JSON.parse(raw);\n    } catch (e) {\n          const match = raw.match(/\\{[\\s\\S]*\\}/);\n          if (match) {\n                  try {\n                            parsed = JSON.parse(match[0]);\n                  } catch (e2) {\n                            parsed = null;\n                  }\n          }\n    }\n\n    if (parsed && parsed.category) {\n          item.json.category = parsed.category;\n          item.json.action = parsed.action || 'label';\n          item.json.reason = parsed.reason || '';\n    } else {\n          item.json.category = 'WAZNE';\n          item.json.action = 'label';\n          item.json.reason = 'Nie udalo sie sparsowac odpowiedzi modelu, oznaczono ostroznosciowo jako WAZNE. Surowa odpowiedz: ' + raw.slice(0, 200);\n    }\n\n    const src = sourceItems[i];\n    if (src && src.json) {\n          item.json.id = src.json.id;\n          item.json.threadId = src.json.threadId;\n    }\n}\n\nreturn inputItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        688
+      ],
+      "id": "5fba6610-eb5c-4722-a36f-201d91aa9b94",
+      "name": "Parse LLM output"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "OFERTA_PRACY",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "56601a55-fd83-4fa5-b6c1-42b290c9a1c9"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "efe66e04-d77a-4a3e-88c4-ca6bc386cd64",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "FAKTURA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "042e7220-9893-4657-a40f-8ac560ad71c8",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "WAZNE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "03a37431-1077-4b24-90d1-ded3b6dd3436",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "NEWSLETTER",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "25b5e5b7-d5f4-43cf-8601-bbd1902c5704",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "SPAM",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "9369b783-15eb-4970-ae0a-d2a671106a6a",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "ZAPROSZENIE_SIEC",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "751fc8e8-9661-40ac-8716-d7d8414adcd9",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "POWIADOMIENIE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "ae1a47f4-b920-41cf-8cf6-3807f82ba546",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "BEZPIECZENSTWO",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "84b014c7-f6ab-4a6b-9666-db143e136b87",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "REKRUTACJA_ODPOWIEDZ",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "d9e336a5-c365-4710-83c1-217d0ed0506e",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "DO_SPRAWDZENIA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "a508dbb4-188a-4ea5-93bc-397d25c96f1e",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "PRAWNE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "a26a66c7-7c26-4c23-94ea-616a5941fa2e",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "SUBSKRYPCJE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "900dbcaf-40fb-4dce-8299-c70f937dd1be",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "BANKOWOSC",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c93c4a26-325c-40fc-b297-8f8fbf2c52d4",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "EDUKACJA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "edcafa63-9211-4d3b-8695-b58c8ac490f6",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "STUDIA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1024,
+        480
+      ],
+      "id": "0af15a27-841c-4d2f-b65a-3a04e59b01ac",
+      "name": "Route by category"
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": [
+          "Label_6639092653137706422"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        2032
+      ],
+      "id": "779a89db-2fb4-4556-8484-3c18c4813237",
+      "name": "Label: ZAPROSZENIE_SIEC",
+      "webhookId": "177fbf19-ea09-45f0-9530-a4509e6a19bf",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": [
+          "Label_2521243859498492611"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        304
+      ],
+      "id": "5cbf5f37-5743-494d-aa9b-d6254c18cead",
+      "name": "Label: OFERTA_PRACY",
+      "webhookId": "24f5dbef-2a7b-4b7a-bab8-d7d68d97ee09",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": [
+          "Label_2019455671329855159"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        688
+      ],
+      "id": "0996c2cb-fa5c-4ca4-aca1-850d19956b48",
+      "name": "Label: FAKTURA",
+      "webhookId": "1118ed6a-6671-47d6-a0a1-5cb36c784b93",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "removeLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": [
+          "INBOX"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1472,
+        -368
+      ],
+      "id": "6d58f498-fd52-4e86-a13d-e7fa697616ac",
+      "name": "Archive (remove INBOX)",
+      "webhookId": "f10ded93-4c01-48c7-8c6f-da7518498584",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": [
+          "Label_918052546970124358"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        880
+      ],
+      "id": "ed4ac64e-98da-473d-89b2-a246382c2c87",
+      "name": "Label: WAZNE",
+      "webhookId": "c39cee12-3092-43b8-ae31-1b9885262caa",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "limit": 100,
+        "filters": {
+          "q": "in:inbox is:unread -label:Auto/Praca -label:Auto/Faktury -label:Auto/Wazne -label:Auto/Kontakty -label:Auto/Newsletter -label:Auto/Spam -label:Auto/Powiadomienia -label:Auto/Bezpieczenstwo -label:Auto/Rekrutacja-Odpowiedz -label:Auto/Do-Sprawdzenia -label:Auto/Prawne -label:Auto/Subskrypcje -label:Auto/Bankowosc -label:Auto/Edukacja -label:Auto/Studia"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        592
+      ],
+      "id": "012acd38-0ffb-4d0e-a951-001d20683634",
+      "name": "Get many messages",
+      "webhookId": "106be243-b169-442e-a4b7-b95be4494d50",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -224,
+        592
+      ],
+      "id": "e1ecb97b-1816-4087-875b-2ea583cfb111",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": [
+          "Label_6974454451583870750"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        -80
+      ],
+      "id": "8e884c87-a2e9-4c4a-aecf-09e45a8fd4f3",
+      "name": "Label: BEZPIECZENSTWO",
+      "webhookId": "bd2611a9-a6ca-4406-91f3-7eb826784908",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": [
+          "Label_2134325418720114706"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        112
+      ],
+      "id": "6ce50513-f32e-46e4-8607-77bca0f10195",
+      "name": "Label: REKRUTACJA_ODPOWIEDZ",
+      "webhookId": "06e9d9d4-ac40-4bef-bb69-094c0647d7a8",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": [
+          "Label_782265237932486243"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        496
+      ],
+      "id": "c1b0cfbd-7d0a-4b6a-86c9-aec4925f9816",
+      "name": "Label: DO_SPRAWDZENIA",
+      "webhookId": "96b442d7-7cd3-4e28-b83f-cdc1ee7e79cf",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": [
+          "Label_6942082462723377189"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        1072
+      ],
+      "id": "e2483ac9-d618-41bd-8dfc-50742ec151c1",
+      "name": "Label: PRAWNE",
+      "webhookId": "bfee8c06-4cf2-4bf7-8cac-690e790470a6",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": [
+          "Label_3201794388822875268"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        1456
+      ],
+      "id": "917027b4-1569-44fb-b92f-e84ae9bbc011",
+      "name": "Label: SUBSKRYPCJE",
+      "webhookId": "3af3747e-71ea-4d0f-853e-e23e440718c2",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": [
+          "Label_806176634262014480"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        1648
+      ],
+      "id": "663c7e66-272a-4968-a0e7-6ffaa4fbaa58",
+      "name": "Label: BANKOWOSC",
+      "webhookId": "af3bd660-d89f-4ad3-888c-a46f2fdba78d",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": [
+          "Label_5108441893554912019"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        1264
+      ],
+      "id": "0082d483-7f2b-42bc-a1a9-f870708a134d",
+      "name": "Label: EDUKACJA",
+      "webhookId": "d5fe0539-bfc5-4a0a-8d89-c10c8de37682",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": [
+          "Label_7815003733809952586"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        1840
+      ],
+      "id": "9f014a51-1ebe-43eb-8950-612054d0d578",
+      "name": "Label: STUDIA",
+      "webhookId": "71426ed7-521c-4cea-b98f-3ab3a42a20fb",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": [
+          "Label_7969400838890440497"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        -656
+      ],
+      "id": "199a41c2-d03b-4bd2-8d8e-88f1b8439106",
+      "name": "Label: NEWSLETTER",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": [
+          "Label_7954488649764644750"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        -464
+      ],
+      "id": "80698e57-3325-4265-a0d6-309d28a83ba4",
+      "name": "Label: SPAM",
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.id }}",
+        "labelIds": [
+          "Label_2449777508425541615"
+        ]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        -272
+      ],
+      "id": "88a72802-74dc-4a41-8c24-80250088051b",
+      "name": "Label: POWIADOMIENIE",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "gmailOAuth2": {
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build prompt fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Classify (LLM)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build prompt fields": {
+      "main": [
+        [
+          {
+            "node": "Classify (LLM)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify (LLM)": {
+      "main": [
+        [
+          {
+            "node": "Parse LLM output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse LLM output": {
+      "main": [
+        [
+          {
+            "node": "Route by category",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by category": {
+      "main": [
+        [
+          {
+            "node": "Label: OFERTA_PRACY",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: FAKTURA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: WAZNE",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: NEWSLETTER",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: SPAM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: ZAPROSZENIE_SIEC",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: POWIADOMIENIE",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: BEZPIECZENSTWO",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: REKRUTACJA_ODPOWIEDZ",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: DO_SPRAWDZENIA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: PRAWNE",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: SUBSKRYPCJE",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: BANKOWOSC",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: EDUKACJA",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: STUDIA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many messages": {
+      "main": [
+        [
+          {
+            "node": "Build prompt fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get many messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label: EDUKACJA": {
+      "main": [
+        [
+          {
+            "node": "Archive (remove INBOX)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label: NEWSLETTER": {
+      "main": [
+        [
+          {
+            "node": "Archive (remove INBOX)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label: SPAM": {
+      "main": [
+        [
+          {
+            "node": "Archive (remove INBOX)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label: POWIADOMIENIE": {
+      "main": [
+        [
+          {
+            "node": "Archive (remove INBOX)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "nodeGroups": []
+}
