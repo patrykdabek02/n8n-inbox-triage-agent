@@ -4,7 +4,9 @@ Automatyczna segregacja skrzynki Gmail w n8n z klasyfikacją lokalnym modelem LL
 Workflow pobiera nieprzeczytane maile, klasyfikuje je do jednej z 15 kategorii, nadaje odpowiednią
 etykietę `Auto/*`, a maile o niskim priorytecie dodatkowo archiwizuje.
 
-Model działa lokalnie — treść maili nie opuszcza komputera.
+**Treść maili nie opuszcza komputera.** Model stoi na `localhost:11434`, n8n na `localhost:5678`,
+a do modelu trafiają wyłącznie trzy pola: nadawca, temat i `snippet` — nigdy pełna treść wiadomości.
+Żadnego zewnętrznego API, żadnego klucza.
 
 ![Workflow w n8n](docs/img/01-workflow-canvas.png)
 
@@ -60,10 +62,23 @@ flowchart LR
 
 Pełna treść promptu systemowego: [`prompts/classifier-system-prompt.md`](prompts/classifier-system-prompt.md).
 
+## Model
+
+| | |
+|---|---|
+| Model | `qwen3.5:9b` (Ollama) |
+| Parametry | 9,7 mld, kwantyzacja Q4_K_M, 6,6 GB na dysku |
+| Format | GGUF, okno kontekstu 262 144 tokenów |
+| Endpoint | `http://localhost:11434`, bez API key |
+| Wydajność | ~3,3 s na wiadomość, ~950 tokenów na klasyfikację |
+
+Model jest wywoływany osobno dla każdej wiadomości, a n8n zrównolegla część wywołań, dzięki czemu
+100 maili mieści się w ~5,5 min zamiast ~5,5 min × liczba maili.
+
 ## Wyniki
 
-Ostatni przebieg na próbie **100 nieprzeczytanych maili**: 5 min 27 s, **0 błędów**,
-wszystkie wiadomości otrzymały etykietę.
+Ostatni przebieg na próbie **100 nieprzeczytanych maili**: 5 min 27 s, ~100 tys. tokenów,
+**0 błędów**, wszystkie wiadomości otrzymały etykietę.
 
 | Kategoria | Trafienia |
 |---|---:|
@@ -82,7 +97,8 @@ a nie błąd klasyfikatora — ręczny przegląd uzasadnień to potwierdził.
 
 ## Uruchomienie u siebie
 
-**Wymagania:** n8n, [Ollama](https://ollama.com) z pobranym modelem, konto Google z włączonym API Gmail.
+**Wymagania:** n8n, [Ollama](https://ollama.com) z pobranym modelem (`ollama pull qwen3.5:9b`,
+~6,6 GB — dowolny model radzący sobie z JSON-em też zadziała), konto Google z włączonym API Gmail.
 
 1. Utwórz w Gmailu 15 etykiet z tabeli powyżej.
 2. Zaimportuj [`workflow/inbox-triage-agent.json`](workflow/inbox-triage-agent.json)
@@ -124,6 +140,15 @@ wystąpił ponownie. Na wszelki wypadek węzeł ma włączone *Retry on Fail* (3
 └── docs/img/                        # zrzuty ekranu
 ```
 
+## Możliwe kierunki rozwoju
+
+- Zapis decyzji klasyfikatora do pliku, żeby dało się policzyć realną trafność na oznaczonej próbce
+  zamiast opierać się na ręcznym przeglądzie.
+- Rozbicie promptu na dwa etapy (najpierw „ważne / nieważne", potem kategoria) — powinno poprawić
+  precyzję przy kategoriach, które model myli.
+- Podsumowanie dzienne: jedna wiadomość z listą tego, co wpadło do `Auto/Wazne`
+  i `Auto/Do-Sprawdzenia`.
+
 ## Stack
 
-n8n · Ollama (lokalny LLM) · Gmail API (OAuth2)
+n8n · Ollama (`qwen3.5:9b`, lokalnie) · Gmail API (OAuth2) · JavaScript (węzeł Code)
